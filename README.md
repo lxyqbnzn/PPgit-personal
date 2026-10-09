@@ -25,6 +25,11 @@ The default browser address is http://127.0.0.1:9300.
 Runtime data is created separately under data/. Use -data to override it.
 Use the executable's -stop flag to request a graceful shutdown.
 
+Workspace scans skip symbolic links and Windows directory junctions without
+following their targets or versioning the links, including broken and cyclic
+links. Ordinary `.lnk` shortcuts are versioned as files. Repository metadata
+and checkout destinations still refuse links to protect files outside the project.
+
 First-party code is licensed under the GNU Affero General Public License,
 version 3 or (at your option) any later version. See LICENSE and COPYRIGHT.
 Third-party components retain their original licenses; see THIRD_PARTY_NOTICES.md,

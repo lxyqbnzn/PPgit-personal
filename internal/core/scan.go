@@ -233,7 +233,10 @@ func workspaceFiles(p project, rules []ignoreRule) ([]workspaceFile, string, err
 			return err
 		}
 		if isLink(info) {
-			return fmt.Errorf("workspace link is not allowed: %s", rel)
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			return nil
