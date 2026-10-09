@@ -3,7 +3,7 @@
 Copyright (C) Electric Reverse
 SPDX-License-Identifier: AGPL-3.0-or-later
 
-I don't want to use git, svn, or Beyond Compare. What should I do?
+I don't want to use Git, SVN, or Beyond Compare. What should I do?
 A better way is to use PPGit!
 
 This source distribution contains the Go application and its embedded offline UI.
