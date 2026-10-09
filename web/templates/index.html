@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="ppgit-csrf-token" content="[[ csrf_token ]]">
+<title>PPGit</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/css/style.css?v=[[ asset_version ]]">
+</head>
+<body>
+
+<div id="app" v-cloak data-asset-version="[[ asset_version ]]">
+  <div class="app-shell" :inert="mergeDiscardTarget || activeModal || exitPhase || checkingOut || submittingCommit ? '' : null">
+
+    
+    <aside class="sidebar">
+      <div class="brand-card">
+        <img class="brand-mark" src="/static/images/ppgit-logo.png?v=[[ asset_version ]]" alt="" width="52" height="52">
+        <div>
+          <h1>PPGit</h1>
+          <p>{{ t('brandSubtitle') }}</p>
+        </div>
+      </div>
+
+      <button class="primary-btn wide-btn" @click="openModal('project')">{{ t('addProject') }}</button>
+
+      <section class="sidebar-section">
+        <div class="section-title-row">
+          <h2>{{ t('managedProjects') }}</h2>
+          <span class="pill">{{ projectCount }}</span>
+        </div>
+
+        <div v-if="!projects.length" class="project-list empty-panel">{{ t('noProjects') }}</div>
+        <div v-else class="project-list">
+          <div
+            v-for="project in projects"
+            :key="project.project_id"
+            class="project-item"
+            :class="{ active: project.project_id === activeProjectId }"
+            @click="selectProject(project.project_id)"
+          >
+            <div class="project-item-head">
+              <div class="project-item-content">
+                <h4>{{ project.name }}</h4>
+                <p>{{ project.path }}</p>
+              </div>
+              <border-glow-button
+                type="button"
+                class="icon-btn project-remove-btn"
+                :title="t('removeProjectTitle')"
+                :aria-label="t('removeProjectTitle')"
+                @click.stop="removeProject(project)"
+              >
+                <svg class="lucide-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M9 13h6"></path>
+                  <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path>
+                </svg>
+                <span>{{ t('removeProjectAction') }}</span>
+              </border-glow-button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </aside>
+
+    
+    <main class="workspace">
+
+      
+      <header class="hero-bar">
+        <div>
+          <p class="eyebrow">{{ t('projectConsole') }}</p>
+          <h2>{{ activeProject ? activeProject.name : t('selectProject') }}</h2>
+          <p class="muted">{{ activeProject ? activeProject.path : t('addProjectHint') }}</p>
+        </div>
+        <div class="hero-actions">
+          <div class="commit-action-stack">
+            <div class="action-button-row">
+              <label class="direct-create-option">
+                <input type="checkbox" v-model="directCreate" :disabled="submittingCommit">
+                <span>{{ t('directCreate') }}</span>
+              </label>
+              <button class="primary-btn create-version-btn" :disabled="!activeProject || submittingCommit || checkingOut" :aria-busy="submittingCommit" @click="createVersion">
+                {{ submittingCommit ? t('creating') : t('createVersion') }}
+              </button>
+              <button class="ghost-btn" @click="refreshActiveProject">{{ t('refresh') }}</button>
+            </div>
+            <div class="project-signature">
+              <span class="copyright-mark">Copyright &copy; 2026 Electric Reverse Ing</span>
+              <div class="language-switch" role="group" :aria-label="t('language')">
+                <button
+                  type="button"
+                  :class="{ active: language === 'en' }"
+                  @click="setLanguage('en')"
+                >EN</button>
+                <span>|</span>
+                <button
+                  type="button"
+                  :class="{ active: language === 'zh' }"
+                  @click="setLanguage('zh')"
+                >中</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      
+      <section class="stats-grid">
+        <article class="stat-card">
+          <span>{{ t('currentVersion') }}</span>
+          <strong>{{ activeProject ? currentVersionMessage : '-' }}</strong>
+        </article>
+        <article class="stat-card">
+          <span>{{ t('versionId') }}</span>
+          <strong>{{ activeProject ? shortVersionId : '-' }}</strong>
+        </article>
+        <article class="stat-card">
+          <span>{{ t('uncommittedFiles') }}</span>
+          <strong :title="statusFailed ? t('statusFailed') : ''" :aria-busy="statusLoading">{{ statusDisplay }}</strong>
+        </article>
+      </section>
+
+      
+      <section class="content-grid">
+
+        
+        <div class="panel panel-timeline">
+          <div class="panel-head">
+            <div><p class="eyebrow">{{ t('history') }}</p><h3>{{ t('versionTimeline') }}</h3></div>
+            <div class="inline-hint">{{ t('compareHint') }}</div>
+          </div>
+
+          <div v-if="!activeProjectId" class="timeline empty-panel">{{ t('selectProjectForHistory') }}</div>
+          <div v-else-if="!versions.length" class="timeline empty-panel">{{ historyLoading ? t('loadingVersions') : t('noVersionHistory') }}</div>
+          <div v-else class="timeline">
+            <div
+              v-for="version in versions"
+              :key="version.version_id"
+              class="timeline-item"
+              :class="{ active: activeTab === 'diff' ? compareIds.includes(version.version_id) : selectedVersionId === version.version_id }"
+              @click="handleTimelineVersionClick(version.version_id)"
+            >
+              <div class="timeline-header">
+                <input
+                  v-if="activeTab === 'diff'"
+                  class="timeline-select"
+                  type="checkbox"
+                  :checked="compareIds.includes(version.version_id)"
+                  @click.stop
+                  @change.stop="toggleCompare(version.version_id, $event)"
+                >
+                <div class="timeline-content">
+                  <div class="timeline-title">
+                    <h4>{{ version.message }}</h4>
+                    <span v-if="version.version_id === workspaceVersionId" class="workspace-version-marker"
+                      :title="t('currentVersion')">{{ t('workspaceVersionMarker') }}</span>
+                  </div>
+                  <p class="timeline-meta">
+                    {{ version.short_version_id }} &middot;
+                    {{ formatDate(version.timestamp) }} &middot;
+                    {{ t('fileCount', { count: version.changed_files }) }}
+                  </p>
+                </div>
+                <div class="timeline-action-group">
+                  <border-glow-button
+                    type="button"
+                    class="icon-btn danger-btn timeline-action-btn timeline-delete-btn"
+                    :title="t('deleteVersion')"
+                    :aria-label="t('deleteVersion')"
+                    @click.stop="deleteVersion(version.version_id)"
+                  >
+                    <svg class="lucide-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M10 11v6"></path>
+                      <path d="M14 11v6"></path>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>
+                      <path d="M3 6h18"></path>
+                      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                    <span>{{ t('deleteAction') }}</span>
+                  </border-glow-button>
+                </div>
+              </div>
+            </div>
+            <div class="history-pagination">
+              <span>{{ t('historyProgress', { loaded: versions.length, total: historyTotal }) }}</span>
+              <button v-if="hasMoreVersions" class="ghost-btn" :disabled="historyLoading" @click="loadMoreVersions">
+                {{ historyLoading ? t('loadingVersions') : t('loadMoreVersions') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        
+        <div class="panel panel-detail">
+          <div class="panel-head split">
+            <div><p class="eyebrow">{{ t('inspector') }}</p><h3>{{ activeTab === 'diff' ? t('diffTab') : detailTitle }}</h3></div>
+            <div class="inline-hint">{{ activeTab === 'diff' ? (diffData ? diffVersionLabel(diffData.to_version, 'to') : t('compareHint')) : detailMeta }}</div>
+          </div>
+
+          
+          <div class="detail-tabs">
+            <button
+              v-for="tab in detailTabs"
+              :key="tab.key"
+              class="tab-btn"
+              :class="{ active: activeTab === tab.key }"
+              @click="setActiveTab(tab.key)"
+            >{{ tab.label }}</button>
+          </div>
+
+          <div class="detail-layout">
+            
+            <div class="detail-sidebar">
+              <div v-if="selectedVersion && activeTab === 'files'" class="version-actions">
+                <button class="ghost-btn" :disabled="versionLoading || checkingOut || selectedVersion.version_id !== selectedVersionId" @click="checkoutVersion"><span v-if="checkingOut" class="btn-spinner"></span>{{ t(checkingOut ? 'checkingOut' : 'checkoutVersion') }}</button>
+              </div>
+
+              
+              <div
+                v-show="activeTab === 'files'"
+                class="file-tree"
+                :class="{ 'empty-panel': !detailTree.length }"
+              >
+                <template v-if="detailTree.length">
+                  <file-tree-node
+                    v-for="node in detailTree"
+                    :key="node.path || node.name"
+                    :node="node"
+                    :changed-paths="changedPathsMap"
+                    :changed-dir-paths="changedDirPaths"
+                    :language="language"
+                    @select-file="loadFileContent"
+                  />
+                </template>
+                <template v-else>{{ t('selectVersionForTree') }}</template>
+              </div>
+
+              
+              <div v-show="activeTab === 'diff'" class="diff-files">
+                <template v-if="diffData && diffData.files && diffData.files.length">
+                  <button
+                    v-for="item in diffData.files"
+                    :key="item.path"
+                    type="button"
+                    class="diff-file-item"
+                    :class="[diffFileStatusClass(item.change_type), { active: activeDiffPath === item.path }]"
+                    @click="selectDiffFile(item.path)"
+                  >
+                    <strong>{{ item.path }}</strong>
+                    <p>{{ (item.too_large || item.message)
+                      ? localizeMessage(item.message)
+                      : `${statusLabel(item.change_type)} · ${formatBytes(item.size || 0)}` }}</p>
+                  </button>
+                </template>
+                <div v-else class="empty-panel">{{ t('selectTwoVersionsForDiff') }}</div>
+              </div>
+            </div>
+
+            
+            <div class="detail-main">
+              
+              <div v-show="showPlaceholder" class="placeholder-panel">
+                <div class="placeholder-orb"></div>
+                <h4>{{ t('waitingAction') }}</h4>
+                <p>{{ t('waitingActionHint') }}</p>
+              </div>
+
+              
+              <pre v-show="showFileContent" class="code-preview"><code :class="{ hljs: highlighterReady }" v-html="highlightedCode"></code></pre>
+
+              
+              <div v-show="activeTab === 'diff'" class="diff-view">
+                <div v-if="!activeDiffItem" class="empty-panel">{{ t('selectDiffFile') }}</div>
+                <div v-else-if="diffFileLoading" class="empty-panel">{{ t('loadingDiff') }}</div>
+                <div v-else-if="!hasDiffPatch" class="empty-panel">
+                  {{ localizeMessage(activeDiffItem.message) || t('noDiffPreview') }}
+                  <div v-if="mergeDisabledReason" class="diff-merge-disabled">{{ mergeDisabledReason }}</div>
+                </div>
+                <div v-else class="side-diff-panel">
+                  <div class="diff-toolbar">
+                    <div class="diff-mode-switch" role="group" :aria-label="t('diffMode')">
+                      <button
+                        type="button"
+                        :class="{ active: diffViewMode === 'changed' }"
+                        @click="setDiffViewMode('changed')"
+                      >{{ t('diffChanged') }}</button>
+                      <button
+                        type="button"
+                        :class="{ active: diffViewMode === 'all' }"
+                        @click="setDiffViewMode('all')"
+                      >{{ t('diffAll') }}</button>
+                    </div>
+                    <span class="diff-row-count">{{ t('diffRows', { count: displayedDiffRows.length }) }}</span>
+                  </div>
+                  <diff-merge-toolbar
+                    :selected-count="mergeSelected.size" :staged-count="mergeStaged.size" :batch-count="mergeBatches.length"
+                    :saving="mergeSaving" :editable="mergeEditable" :error="mergeError"
+                    :disabled-reason="mergeDisabledReason" :text="mergeText"
+                    @apply="applyMerge" @undo="undoMerge" @discard="discardMerge" @confirm="confirmMerge"
+                  ></diff-merge-toolbar>
+                  <virtual-diff-rows
+                    :rows="displayedDiffRows"
+                    :selected-rows="mergeSelected" :editable="mergeEditable" :saving="mergeSaving" :merge-text="mergeText"
+                    :viewport-key="activeDiffPath + ':' + diffViewMode"
+                    :left-label="diffVersionLabel(diffData.from_version, 'from')"
+                    :right-label="diffVersionLabel(diffData.to_version, 'to') + (mergeDirty ? ' [' + mergeText('draft') + ']' : '')"
+                    @select-row="selectMergeRow"
+                  ></virtual-diff-rows>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+    </main>
+  </div>
+
+  
+  <div
+    class="toast"
+    v-show="toastVisible"
+    :style="{ borderColor: toastIsError ? 'rgba(255,118,118,0.4)' : 'rgba(103,212,255,0.28)' }"
+  >{{ toastMessage }}</div>
+
+  <div v-if="mergeDiscardTarget" class="modal-overlay" @click.self="cancelMergeDiscard">
+    <version-action-dialog kind="discard-merge" :target="mergeDiscardTarget" :t="mergeText"
+      @confirm="confirmMergeDiscard" @cancel="cancelMergeDiscard"></version-action-dialog>
+  </div>
+
+  
+  <div v-if="activeModal" class="modal-overlay" :inert="exitPhase ? '' : null" @click.self="closeModal">
+
+    
+    <div v-if="activeModal === 'project'" class="modal">
+      <div class="modal-head">
+        <h3>{{ t('addProject') }}</h3>
+        <button class="icon-btn" :disabled="submittingProject || browsingFolder" @click="closeModal">&times;</button>
+      </div>
+      <div class="field">
+        <span>{{ t('projectPath') }}</span>
+        <div class="input-with-action">
+          <input
+            v-model="projectPathInput"
+            type="text"
+            :placeholder="t('projectPathPlaceholder')"
+            :disabled="submittingProject || browsingFolder"
+            :aria-invalid="Boolean(projectError)"
+            :aria-describedby="projectError ? 'project-error' : undefined"
+            @keyup.enter="submitProject"
+          >
+          <button
+            class="icon-btn browse-btn"
+            type="button"
+            :disabled="submittingProject || browsingFolder"
+            :aria-busy="browsingFolder"
+            @click="browseFolder"
+            :title="t('chooseFolder')"
+            :aria-label="t('chooseFolder')"
+          >
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 5a2 2 0 012-2h3.172a2 2 0 011.414.586l1.828 1.828A2 2 0 0011.828 6H16a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V5z"/>
+            </svg>
+          </button>
+        </div>
+        <p v-if="projectError" id="project-error" class="field-error" role="alert">{{ projectError }}</p>
+      </div>
+      <div class="modal-actions">
+        <button class="ghost-btn" :disabled="submittingProject || browsingFolder" @click="closeModal">{{ t('cancel') }}</button>
+        <button class="primary-btn" :disabled="submittingProject || browsingFolder" @click="submitProject">
+          <span v-show="submittingProject" class="btn-spinner"></span>
+          {{ submittingProject ? t('addingProject') : t('addAndInitRepo') }}
+        </button>
+      </div>
+    </div>
+
+    <version-action-dialog v-if="activeModal === 'delete-version' && pendingDeleteVersion"
+      :target="pendingDeleteVersion" :busy="submittingDelete" :error="deleteVersionError" :t="t"
+      @confirm="confirmDeleteVersion" @cancel="closeModal"></version-action-dialog>
+
+    <version-action-dialog v-if="activeModal === 'checkout-version' && pendingCheckout" kind="checkout"
+      :target="pendingCheckout" :busy="checkingOut" :error="checkoutError" :changed="checkoutChanged" :t="t"
+      @confirm="confirmCheckoutVersion" @cancel="closeModal"></version-action-dialog>
+
+    
+    <div v-if="activeModal === 'commit'" class="modal modal-commit">
+      <div class="modal-head">
+        <h3>{{ t('createNewVersion') }}</h3>
+        <button class="icon-btn" :disabled="submittingCommit" @click="closeModal">&times;</button>
+      </div>
+      <div v-if="commitFilesLoading" class="scan-progress-panel">
+        <div class="scan-progress-label">
+          <span>{{ commitScanTotal ? t('readingChangedFiles', { processed: commitScanProcessed, total: commitScanTotal }) : t('preparingChangedFiles') }}</span>
+          <strong v-if="commitScanTotal">{{ commitScanPercent }}%</strong>
+        </div>
+        <div
+          class="scan-progress-track"
+          :class="{ indeterminate: !commitScanTotal }"
+          role="progressbar"
+          :aria-valuemin="0"
+          :aria-valuemax="commitScanTotal || undefined"
+          :aria-valuenow="commitScanTotal ? commitScanProcessed : undefined"
+        >
+          <span :style="{ width: `${commitScanPercent}%` }"></span>
+        </div>
+      </div>
+      <div v-else-if="commitScanFailed" class="modal-list empty-panel">
+        <p>{{ t('requestFailed') }}</p>
+        <button class="ghost-btn" @click="openCommitModal">{{ t('refresh') }}</button>
+      </div>
+      <div v-else-if="commitFilesEmpty" class="modal-list empty-panel">{{ t('noCommitChanges') }}</div>
+      <div v-else class="modal-list">
+        <div class="commit-file-summary-row">
+          <p class="commit-file-summary">{{ t('changedFilesSummary', { count: commitFileCount }) }}</p>
+          <button
+            type="button"
+            class="mini-toggle"
+            :class="{ active: commitFileDetailsVisible }"
+            role="switch"
+            :aria-checked="commitFileDetailsVisible"
+            :aria-label="t(commitFileDetailsVisible ? 'hideChangedFileNames' : 'showChangedFileNames')"
+            :title="t(commitFileDetailsVisible ? 'hideChangedFileNames' : 'showChangedFileNames')"
+            :disabled="commitFileDetailsLoading"
+            @click="toggleCommitFileDetails"
+          ><span aria-hidden="true"></span></button>
+        </div>
+        <div v-if="commitFileDetailsLoading" class="commit-details-loading" role="status">
+          <span class="btn-spinner"></span>
+          {{ t('loadingChangedFiles') }}
+        </div>
+        <template v-else-if="commitFileDetailsVisible">
+          <div v-for="file in displayedCommitFiles" :key="file.path" class="project-item">
+            <h4>{{ file.path }}</h4>
+            <span class="status-badge" :class="file.status">{{ statusLabel(file.status) }}</span>
+          </div>
+          <button
+            v-if="remainingCommitFiles"
+            type="button"
+            class="ghost-btn commit-more-btn"
+            @click="showMoreCommitFiles"
+          >{{ t('moreChangedFiles', { count: remainingCommitFiles > 200 ? 200 : remainingCommitFiles }) }}</button>
+        </template>
+      </div>
+      <label class="field">
+        <span>{{ t('versionMessage') }}</span>
+        <textarea
+          v-model="commitMessage"
+          rows="4"
+          :placeholder="t('versionMessagePlaceholder')"
+          :disabled="submittingCommit"
+          @keyup.ctrl.enter="submitCommit"
+        ></textarea>
+      </label>
+      <div class="modal-actions">
+        <button class="ghost-btn" :disabled="submittingCommit" @click="closeModal">{{ t('cancel') }}</button>
+        <button class="primary-btn" :disabled="submittingCommit || commitFilesLoading || commitFilesEmpty || commitScanFailed" @click="submitCommit">
+          <span v-show="submittingCommit" class="btn-spinner"></span>
+          {{ submittingCommit ? t('creating') : t('confirmCreateVersion') }}
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="/static/vendor/vue.global.prod.js?v=[[ asset_version ]]"></script>
+<script src="/static/js/usePageLeaveGuard.js?v=[[ asset_version ]]"></script>
+<script src="/static/js/useServerSync.js?v=[[ asset_version ]]"></script>
+<script src="/static/js/VersionActionDialog.js?v=[[ asset_version ]]"></script>
+<script src="/static/js/useVersionCheckout.js?v=[[ asset_version ]]"></script>
+<script src="/static/js/useDiffMerge.js?v=[[ asset_version ]]"></script>
+<script src="/static/js/app.js?v=[[ asset_version ]]"></script>
+</body>
+</html>

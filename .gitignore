@@ -1,0 +1,10 @@
+.tools/
+bin/
+dist/
+data/
+ppgit_data/
+reports/*-work/
+benchmarks/work/
+benchmarks/runs/
+tests/work/
+*.log
